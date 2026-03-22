@@ -1,9 +1,14 @@
-import re
+import hashlib
+import json
+import os
 import sys
 import socket
 import ssl
+import time
 from bs4 import BeautifulSoup
-from urllib.parse import quote_plus, unquote, parse_qs, urlparse
+from urllib.parse import quote_plus, parse_qs, urlparse
+
+CACHE_DIR = "cache"
 
 def show_help():
     print("Usage:")
@@ -56,16 +61,54 @@ def follow_redirects(status, headers, body, max_redirects=10):
     if status_code in (301, 302, 303, 307, 308):
         location = get_header(headers, "Location")
         if location:
-            print(f"Redirecting to {location}")
+            print(f"-> Redirecting to {location}")
             status, headers, body = fetch(location)
             return follow_redirects(status, headers, body, max_redirects - 1)
     return status, headers, body
 
+def get_cache_path(url):
+    url_hash = hashlib.md5(url.encode()).hexdigest()
+    return os.path.join(CACHE_DIR, f"{url_hash}.json")
+
+def load_cache(cache_file):
+    if os.path.exists(cache_file):
+        with open(cache_file, "r") as f:
+            return json.load(f)
+    return None
+
+def save_cache(cache_file, new_entry):
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    with open(cache_file, "w") as f:
+        json.dump(new_entry, f)
+
+def get_from_cache(url):
+    cache_file = get_cache_path(url)
+    entry = load_cache(cache_file)
+    if entry and time.time() - entry["timestamp"] < 3600:
+        return entry
+    return None
+
+def add_to_cache(url, status, headers, body):
+    cache_file = get_cache_path(url)
+    entry = {
+        "status": status,
+        "headers": headers,
+        "body": body,
+        "timestamp": time.time()
+    }
+    save_cache(cache_file, entry)
+
 def fetch(url):
     host, port, path = url_parse(url)
 
+    cached= get_from_cache(url)
+    if cached:
+        print(f"-> Served from cache: {url}")
+        return cached["status"], cached["headers"], cached["body"]
+
     request = f"GET {path} HTTP/1.0\r\nHost: {host}\r\nConnection: close\r\n\r\n"
 
+    print(f"-> Fetching {url}...")
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect((host, port))
 
@@ -87,10 +130,14 @@ def fetch(url):
     header_data, _, body = response.partition(b'\r\n\r\n')
     headers = header_data.decode()
     status_line = headers.splitlines()[0]
-    return follow_redirects(status_line, headers, body)
+
+    status, headers, body = follow_redirects(status_line, headers, body)
+    add_to_cache(url, status, headers, body.decode("utf-8", errors="replace"))
+    return status, headers, body
 
 
 def search(term):
+    print(f"-> Searching for {term}...")
     url = f"https://html.duckduckgo.com/html/?q={quote_plus(term)}" # converts words into URL-safe
     status, headers, body = fetch(url)
 
@@ -100,6 +147,7 @@ def search(term):
 
     soup = BeautifulSoup(body, 'html.parser')
     results = soup.find_all('a', class_="result__a", limit=10)
+    print("\n")
 
     for i, result in enumerate(results, 1):
         raw = result.get('href')
@@ -123,7 +171,7 @@ def main():
             return
         url = sys.argv[2]
         status, headers, body = fetch(url)
-        print("-------------------------")
+        print("\n-------------------------")
         print(f"Status: {status}")
         print("-------------------------")
         print(parse_html(body))
