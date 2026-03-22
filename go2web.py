@@ -38,6 +38,29 @@ def parse_html(html):
     text = soup.get_text(separator="\n", strip=True)
     return text
 
+def get_header(headers, name):
+    header_lines = headers.splitlines()
+    content = ""
+    for header in header_lines:
+        if header.lower().startswith(name.lower()):
+            content = header.split(": ", 1)[1].strip()
+    return content
+
+def follow_redirects(status, headers, body, max_redirects=10):
+    if max_redirects == 0:
+        print("Error: too many redirects")
+        return status, headers, body
+
+    status_code = int(status.split()[1])
+
+    if status_code in (301, 302, 303, 307, 308):
+        location = get_header(headers, "Location")
+        if location:
+            print(f"Redirecting to {location}")
+            status, headers, body = fetch(location)
+            return follow_redirects(status, headers, body, max_redirects - 1)
+    return status, headers, body
+
 def fetch(url):
     host, port, path = url_parse(url)
 
@@ -64,7 +87,7 @@ def fetch(url):
     header_data, _, body = response.partition(b'\r\n\r\n')
     headers = header_data.decode()
     status_line = headers.splitlines()[0]
-    return status_line, headers, body.decode()
+    return follow_redirects(status_line, headers, body)
 
 
 def search(term):
