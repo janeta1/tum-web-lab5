@@ -1,6 +1,7 @@
 import sys
 import socket
 import ssl
+from bs4 import BeautifulSoup
 
 def show_help():
     print("Usage:")
@@ -30,6 +31,11 @@ def url_parse(url):
     return host, port, path
 
 
+def parse_html(html):
+    soup = BeautifulSoup(html, 'html.parser')
+    return soup.get_text()
+
+
 def fetch(url):
     host, port, path = url_parse(url)
 
@@ -56,8 +62,8 @@ def fetch(url):
     header_data, _, body = response.partition(b'\r\n\r\n')
     headers = header_data.decode()
     status_line = headers.splitlines()[0]
-    print(f"Status: {status_line}")
-    print(body.decode())
+    text = parse_html(body.decode())
+    return status_line, text
 
 
 def main():
@@ -70,7 +76,11 @@ def main():
             print("Error: -u requires a URL")
             return
         url = sys.argv[2]
-        fetch(url)
+        status, text = fetch(url)
+        print("-------------------------")
+        print(f"Status: {status}")
+        print("-------------------------")
+        print(text)
         return
 
     if sys.argv[1] == "-s":
