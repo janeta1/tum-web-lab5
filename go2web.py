@@ -1,7 +1,9 @@
+import re
 import sys
 import socket
 import ssl
 from bs4 import BeautifulSoup
+from urllib.parse import quote_plus, unquote, parse_qs, urlparse
 
 def show_help():
     print("Usage:")
@@ -33,8 +35,8 @@ def url_parse(url):
 
 def parse_html(html):
     soup = BeautifulSoup(html, 'html.parser')
-    return soup.get_text()
-
+    text = soup.get_text(separator="\n", strip=True)
+    return text
 
 def fetch(url):
     host, port, path = url_parse(url)
@@ -62,8 +64,29 @@ def fetch(url):
     header_data, _, body = response.partition(b'\r\n\r\n')
     headers = header_data.decode()
     status_line = headers.splitlines()[0]
-    text = parse_html(body.decode())
-    return status_line, text
+    return status_line, headers, body.decode()
+
+
+def search(term):
+    url = f"https://html.duckduckgo.com/html/?q={quote_plus(term)}" # converts words into URL-safe
+    status, headers, body = fetch(url)
+
+    if "200" not in status:
+        print(f"Search failed: {status}")
+        return
+
+    soup = BeautifulSoup(body, 'html.parser')
+    results = soup.find_all('a', class_="result__a", limit=10)
+
+    for i, result in enumerate(results, 1):
+        raw = result.get('href')
+        parsed = urlparse(raw) # breaks into parts - scheme, host, path, query
+        qs = parse_qs(parsed.query) # turns the raw query string into a dict
+        real_url = qs['uddg'][0] if 'uddg' in qs else raw
+
+        print(f"{i}. {result.get_text()}")
+        print(f"    {real_url}")
+        print()
 
 
 def main():
@@ -76,11 +99,11 @@ def main():
             print("Error: -u requires a URL")
             return
         url = sys.argv[2]
-        status, text = fetch(url)
+        status, headers, body = fetch(url)
         print("-------------------------")
         print(f"Status: {status}")
         print("-------------------------")
-        print(text)
+        print(parse_html(body))
         return
 
     if sys.argv[1] == "-s":
@@ -88,7 +111,7 @@ def main():
             print("Error: -s requires a search term")
             return
         term = " ".join(sys.argv[2:])
-        print(f"[TODO] Implement search for {term}")
+        search(term)
         return
 
     print(f"Unknown option: {sys.argv[1]}")
