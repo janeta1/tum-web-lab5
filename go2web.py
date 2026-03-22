@@ -98,6 +98,17 @@ def add_to_cache(url, status, headers, body):
     }
     save_cache(cache_file, entry)
 
+def display(headers, body):
+    content_type = get_header(headers, "Content-Type")
+    if "application/json" in content_type:
+        try:
+            parsed = json.loads(body) # json string to dict
+            print(json.dumps(parsed, indent=2)) # dict to json string
+        except json.decoder.JSONDecodeError:
+            print(body)
+    else:
+        print(parse_html(body))
+
 def fetch(url):
     host, port, path = url_parse(url)
 
@@ -106,7 +117,7 @@ def fetch(url):
         print(f"-> Served from cache: {url}")
         return cached["status"], cached["headers"], cached["body"]
 
-    request = f"GET {path} HTTP/1.0\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    request = f"GET {path} HTTP/1.0\r\nHost: {host}\r\nUser-Agent: go2web/1.0\r\nAccept: application/json, text/html\r\nConnection: close\r\n\r\n"
 
     print(f"-> Fetching {url}...")
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -132,7 +143,9 @@ def fetch(url):
     status_line = headers.splitlines()[0]
 
     status, headers, body = follow_redirects(status_line, headers, body)
-    add_to_cache(url, status, headers, body.decode("utf-8", errors="replace"))
+    if isinstance(body, bytes):
+        body = body.decode("utf-8", errors="replace")
+    add_to_cache(url, status, headers, body)
     return status, headers, body
 
 
@@ -174,7 +187,7 @@ def main():
         print("\n-------------------------")
         print(f"Status: {status}")
         print("-------------------------")
-        print(parse_html(body))
+        display(headers, body)
         return
 
     if sys.argv[1] == "-s":
