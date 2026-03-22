@@ -16,7 +16,6 @@ def show_help():
     print("  go2web -s <search-term>  search the term and print top 10 results")
     print("  go2web -h                show this help")
 
-
 def url_parse(url):
     scheme, rest = url.split('://')
 
@@ -35,8 +34,7 @@ def url_parse(url):
 
     path = "/" + "/".join(rest.split('/')[1:]) or "/"
 
-    return host, port, path
-
+    return host, port, path, scheme
 
 def parse_html(html):
     soup = BeautifulSoup(html, 'html.parser')
@@ -51,7 +49,7 @@ def get_header(headers, name):
             content = header.split(": ", 1)[1].strip()
     return content
 
-def follow_redirects(status, headers, body, max_redirects=10):
+def follow_redirects(status, headers, body, host, scheme, max_redirects=10):
     if max_redirects == 0:
         print("Error: too many redirects")
         return status, headers, body
@@ -61,9 +59,11 @@ def follow_redirects(status, headers, body, max_redirects=10):
     if status_code in (301, 302, 303, 307, 308):
         location = get_header(headers, "Location")
         if location:
+            if location.startswith("/"):
+                location = f"{scheme}://{host}{location}"
             print(f"-> Redirecting to {location}")
             status, headers, body = fetch(location)
-            return follow_redirects(status, headers, body, max_redirects - 1)
+            return follow_redirects(status, headers, body, host, scheme, max_redirects - 1)
     return status, headers, body
 
 def get_cache_path(url):
@@ -79,7 +79,7 @@ def load_cache(cache_file):
 def save_cache(cache_file, new_entry):
     os.makedirs(CACHE_DIR, exist_ok=True)
     with open(cache_file, "w") as f:
-        json.dump(new_entry, f)
+        json.dump(new_entry, f, indent=2)
 
 def get_from_cache(url):
     cache_file = get_cache_path(url)
@@ -110,7 +110,7 @@ def display(headers, body):
         print(parse_html(body))
 
 def fetch(url):
-    host, port, path = url_parse(url)
+    host, port, path, scheme = url_parse(url)
 
     cached= get_from_cache(url)
     if cached:
@@ -142,12 +142,11 @@ def fetch(url):
     headers = header_data.decode()
     status_line = headers.splitlines()[0]
 
-    status, headers, body = follow_redirects(status_line, headers, body)
+    status, headers, body = follow_redirects(status_line, headers, body, host, scheme)
     if isinstance(body, bytes):
         body = body.decode("utf-8", errors="replace")
     add_to_cache(url, status, headers, body)
     return status, headers, body
-
 
 def search(term):
     print(f"-> Searching for {term}...")
@@ -172,7 +171,6 @@ def search(term):
         print(f"    {real_url}")
         print()
 
-
 def main():
     if len(sys.argv) < 2 or sys.argv[1] == "-h":
         show_help()
@@ -181,7 +179,7 @@ def main():
     if sys.argv[1] == "-u":
         if len(sys.argv) < 3:
             print("Error: -u requires a URL")
-            return
+            sys.exit(1)
         url = sys.argv[2]
         status, headers, body = fetch(url)
         print("\n-------------------------")
@@ -193,12 +191,13 @@ def main():
     if sys.argv[1] == "-s":
         if len(sys.argv) < 3:
             print("Error: -s requires a search term")
-            return
+            sys.exit(1)
         term = " ".join(sys.argv[2:])
         search(term)
         return
 
     print(f"Unknown option: {sys.argv[1]}")
+    sys.exit(1)
 
 if __name__ == "__main__":
     main()
