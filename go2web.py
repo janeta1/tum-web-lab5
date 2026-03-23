@@ -49,7 +49,7 @@ def get_header(headers, name):
             content = header.split(": ", 1)[1].strip()
     return content
 
-def follow_redirects(status, headers, body, host, scheme, max_redirects=10):
+def follow_redirects(status, headers, body, host, scheme, max_redirects):
     if max_redirects == 0:
         print("Error: too many redirects")
         return status, headers, body
@@ -62,8 +62,7 @@ def follow_redirects(status, headers, body, host, scheme, max_redirects=10):
             if location.startswith("/"):
                 location = f"{scheme}://{host}{location}"
             print(f"-> Redirecting to {location}")
-            status, headers, body = fetch(location)
-            return follow_redirects(status, headers, body, host, scheme, max_redirects - 1)
+            status, headers, body = fetch(location, max_redirects - 1)
     return status, headers, body
 
 def get_cache_path(url):
@@ -109,7 +108,7 @@ def display(headers, body):
     else:
         print(parse_html(body))
 
-def fetch(url):
+def fetch(url, max_redirects=10):
     host, port, path, scheme = url_parse(url)
 
     cached= get_from_cache(url)
@@ -142,7 +141,7 @@ def fetch(url):
     headers = header_data.decode()
     status_line = headers.splitlines()[0]
 
-    status, headers, body = follow_redirects(status_line, headers, body, host, scheme)
+    status, headers, body = follow_redirects(status_line, headers, body, host, scheme, max_redirects)
     if isinstance(body, bytes):
         body = body.decode("utf-8", errors="replace")
     add_to_cache(url, status, headers, body)
